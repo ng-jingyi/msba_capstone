@@ -1,3 +1,8 @@
+> **The Read Me file and codes are taken from: https://github.com/xychang/RecursiveHierarchicalClustering**
+>
+> This repository fixes some of the bugs I encountered while running the original algorithm. I ran the algorithm successfully with both `input.txt` and `seq_input.txt`, where the format of the latter is similar to the [paper](https://dl.acm.org/doi/pdf/10.1145/3068332).
+> `seq_input.txt` is sampled from [Kaggle Competition - Otto Recommender System](https://www.kaggle.com/competitions/otto-recommender-system/data)
+
 # Recursive Hierarchical Clustering
 In this project, we build an unsupervised system to capture dominating user behaviors from clickstream data (traces of users’ click events), and visualize the detected behaviors in an intuitive manner. 
 
