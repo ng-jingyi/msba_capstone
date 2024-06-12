@@ -1,4 +1,4 @@
-> This python wrapper is taken from: https://github.com/fandu/maximal-sequential-patterns-mining
+> This python wrapper is taken from: https://github.com/fandu/maximal-sequential-patterns-mining\
 > Edited for use in Python 3
 
 # Maximal Sequential Patterns Mining
