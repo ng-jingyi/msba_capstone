@@ -70,7 +70,6 @@ def getSidNgramMap(inputPath, sids=None):
                              for item in [x.split('(') for x in line]])
     return sid_seq
 
-
 def splitCluster(clustervars, matrix):
     """
     :type baseCluster: List[int]

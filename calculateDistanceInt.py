@@ -132,7 +132,7 @@ def calDist(inputPath, sidsPath, outputPath, tmpPrefix='', idfMapPath=None):
                                                  sidsPath.split('sid_')[0])))
     # read the ngram file, generate a node list
     lineNum = 1
-    sids = pickle.load(open(sidsPath))
+    sids = pickle.load(open(sidsPath, 'rb'))
 
     fromSids = set(sids[0])
     # in principle the toSids should be all sids
@@ -142,7 +142,7 @@ def calDist(inputPath, sidsPath, outputPath, tmpPrefix='', idfMapPath=None):
 
     # get the idfMap, if provided
     if (idfMapPath):
-        idfMap = pickle.load(open(idfMapPath))
+        idfMap = pickle.load(open(idfMapPath, 'rb'))
     else:
         idfMap = None
 
@@ -163,7 +163,7 @@ def calDist(inputPath, sidsPath, outputPath, tmpPrefix='', idfMapPath=None):
     while start < len(fromSids):
         tid += 1
         thread = myThread(tid, '%s%sdist' % (outputPath, tmpPrefix),
-                          matrix, sids[0][start:start+step], sids[1])
+                          matrix, sids[0][int(start):int(start)+int(step)], sids[1])
         thread.start()
         threads.append(thread)
         start += step
@@ -215,7 +215,7 @@ def partialMatrix(sids, idfMap, ngramPath, tmpPrefix, outputPath,
         step = total / len(servers) + 1
     processes = []
     start = 0
-    pickle.dump(idfMap, open('%s%sidf.pkl' % (outputPath, tmpPrefix), 'w'))
+    pickle.dump(idfMap, open('%s%sidf.pkl' % (outputPath, tmpPrefix), 'wb'))
 
     # if number of tasks is small enough, run it locally
     if total < MIN_SERVER:
@@ -224,8 +224,8 @@ def partialMatrix(sids, idfMap, ngramPath, tmpPrefix, outputPath,
     for server in servers:
         if (start >= total):
             break
-        pickle.dump([sids[start:start+step], sids], open('%s%ssid_%s.pkl' %
-                     (outputPath, tmpPrefix, server), 'w'))
+        pickle.dump([sids[int(start):int(start)+int(step)], sids], open('%s%ssid_%s.pkl' %
+                     (outputPath, tmpPrefix, server), 'wb'))
         print(('[LOG]: starting in %s for %s' % (server, tmpPrefix)))
         if server == 'localhost':
             calDist(ngramPath, '%s%ssid_%s.pkl' %
