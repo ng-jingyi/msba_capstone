@@ -17,23 +17,16 @@ import json
 import sys
 import numpy as np
 import recursiveHierarchicalClustering as rhc
-import csv
 
 inPath = sys.argv[1]
 sid_ngram = sys.argv[2]
 outPath = sys.argv[3]
-input_dict_path = sys.argv[4]
 
 # display 24 bins in visulization
 binCount = 24
 
 data = json.load(open(inPath))
 sid_seq = rhc.getSidNgramMap(sid_ngram)
-
-input_dict = {}
-with open(input_dict_path, 'r') as csv_file:
-    reader = csv.reader(csv_file)
-    input_dict = {rows[0]: rows[1] for rows in reader}
 
 
 def allUser(tree):
@@ -101,14 +94,9 @@ def getJsonChildren(tree, sid_seq, clusterId):
             for eidx in range(len(info['exclusions'])):
                 # the second entry can be a longer description of the feature
                 # excluded
-                # info['exclusions'][eidx] = exclusions = \
-                #     [info['exclusions'][eidx]] * 2
-                # key = exclusions[0]
-                key = info['exclusions'][eidx]
-                # Get the sequence value from the dictionary
-                exclusions = [key, input_dict.get(key, "")]
-                info['exclusions'][eidx] = exclusions
-
+                info['exclusions'][eidx] = exclusions = \
+                    [info['exclusions'][eidx]] * 2
+                key = exclusions[0]
                 localDists = getPatternDist(key, sids, sid_seq)
                 globalDists = getPatternDist(key, list(set(allSids)-set(sids)),
                                              sid_seq)
