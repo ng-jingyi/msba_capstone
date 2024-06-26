@@ -1,0 +1,332 @@
+---
+title: "Sequence Clustering"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source(file = 'R/seq_kmeans_clustering.R')
+source(file = 'R/split_event_log.R')
+source('R/seq_markov_clustering.R')
+source('R/seq_dtw_clustering.R')
+source('R/seq_edit_distance_clustering.R')
+
+library(data.table)
+library(tidyverse)
+library(bupaverse)
+library(seqHMM)
+library(dtwclust)
+library(stringdist)
+
+```
+
+# Sequence Clustering Algorithms + Visualisation using Process Maps
+- K-Means Clustering
+- Edit Distance Clustering
+- Dynamic Time Warp Clustering
+- Markov Clustering
+
+## Converting Clean Sequence Data into Event Log for Input
+```{r}
+dt <- fread('cleaned_otto_event_data.csv')
+event_log <- dt[, .(session, dt, event)]
+
+setnames(event_log, 'session', 'case_id')
+setnames(event_log, 'event', 'activity_id')
+setnames(event_log, 'dt', 'timestamp')
+
+event_log[, `:=` (lifecycle_id = 'complete', 
+                  resource_id = NA,
+                  activity_instance_id = 1:nrow(event_log)
+                  )]
+
+event_log <- eventlog(eventlog = event_log,
+                      case_id = 'case_id',
+                      activity_id = 'activity_id',
+                      activity_instance_id = 'activity_instance_id',
+                      lifecycle_id = 'lifecycle_id',
+                      timestamp = 'timestamp',
+                      resource_id = 'resource_id')
+```
+
+## K-Means Clustering
+### Choosing number of clusters: Elbow Method
+Not that clear --> potentially 20 clusters? \
+Clustering is done on the whole sequence, instead of sequence fragments. This makes clustering of long sequences hard. They'll likely be grouped in the same cluster.\
+
+Other ways to work around this:
+1. Cluster by n-grams
+2. Within the big cluster, split into n-grams to construct the process map (maybe cluster again?), just to be able to see the flows
+
+```{r, message=FALSE}
+set.seed(1)
+wss = rep(NA, 30)
+
+for (k in c(1:30)){
+  wss[k] = seq_kmeans_clustering(event_log, k, nstart = 10)$model$tot.withinss
+}
+
+plot(1:30, wss, type = "b", pch = 19, frame = FALSE,
+     xlab = "Number of clusters K",
+     ylab = "Total within-clusters sum of squares")
+
+```
+### Actual clustering sequences
+```{r, warning=FALSE}
+kmeans_cluster <- seq_kmeans_clustering(event_log, centers = 20)
+
+event_log_2 <- split_event_log(eventlog = event_log, 
+                              cluster_assignment = kmeans_cluster$cluster_assignment)
+```
+### Understand each cluster better
+- Min, max frequency of traces
+- Avg sequence length
+- Top 3 common sequences 
+
+```{r}
+
+trace_1 <- traces(event_log_2[[1]])
+min_abs_freq_1 <- min(trace_1$absolute_frequency)
+min_rel_freq_1 <- min(trace_1$relative_frequency)
+max_abs_freq_1 <- max(trace_1$absolute_frequency)
+max_rel_freq_1 <- max(trace_1$relative_frequency)
+
+# average seq length
+trace_1 <- trace_1 %>%
+  mutate(num_events = sapply(gregexpr(",", trace), function(x) length(x) + 1))
+
+average_num_events <- mean(trace_1$num_events)
+
+# top 3 common sequences 
+top_3_sequences <- trace_1 %>%
+  arrange(desc(absolute_frequency)) %>%
+  head(3) %>%
+  select(trace) %>%
+  mutate(rank = paste0("top", row_number())) %>%
+  pivot_wider(names_from = rank, values_from = trace)
+
+# Combine all variables into a single row data frame
+summary_row <- data.frame(
+  cluster = '1', 
+  min_abs_freq = min_abs_freq_1,
+  max_abs_freq = max_abs_freq_1,
+  min_rel_freq = min_rel_freq_1,
+  max_rel_freq = max_rel_freq_1,
+  avg_num_events = average_num_events,
+  top1 = top_3_sequences$top1,
+  top2 = top_3_sequences$top2,
+  top3 = top_3_sequences$top3
+)
+
+```
+
+```{r}
+# For all 20 clusters
+# Initialize an empty data frame to store results
+results <- data.frame()
+
+# Loop through all clusters from 1 to 20
+for (i in 1:20) {
+  
+  # Number of unique cases
+  num_unique_case <- length(unique(event_log_2[[i]]$case_id))
+  
+  # Assuming traces(event_log_2[[i]]) gives you the trace data for cluster i
+  trace_i <- traces(event_log_2[[i]])
+  
+  # Calculate the required statistics
+  min_abs_freq_i <- min(trace_i$absolute_frequency)
+  min_rel_freq_i <- min(trace_i$relative_frequency)
+  max_abs_freq_i <- max(trace_i$absolute_frequency)
+  max_rel_freq_i <- max(trace_i$relative_frequency)
+  
+  # Average sequence length
+  trace_i <- trace_i %>%
+    mutate(num_events = sapply(gregexpr(",", trace), function(x) length(x) + 1))
+  
+  average_num_events <- mean(trace_i$num_events)
+  
+  # Top 3 common sequences
+  top_3_sequences <- trace_i %>%
+    arrange(desc(absolute_frequency)) %>%
+    head(3) %>%
+    select(trace) %>%
+    mutate(rank = paste0("top", row_number())) %>%
+    pivot_wider(names_from = rank, values_from = trace)
+  
+  # Combine all variables into a single row data frame
+  summary_row <- data.frame(
+    cluster = as.character(i), 
+    num_unique_case = num_unique_case,
+    min_abs_freq = min_abs_freq_i,
+    max_abs_freq = max_abs_freq_i,
+    min_rel_freq = min_rel_freq_i,
+    max_rel_freq = max_rel_freq_i,
+    avg_num_events = average_num_events,
+    top1 = top_3_sequences$top1,
+    top2 = top_3_sequences$top2,
+    top3 = top_3_sequences$top3
+  )
+  
+  # Append the summary row to the results data frame
+  results <- bind_rows(results, summary_row)
+}
+
+```
+
+### View process map
+```{r}
+# Loop over the indices 1 to 20
+for (i in 1:20) {
+  # Construct the name of the data frame
+  cluster_name <- paste0("cluster", i)
+  
+  # Assign the respective event log to the data frame with the constructed name
+  assign(cluster_name, event_log_2[[i]])
+  
+}
+
+# Convert activity_instance_id to character for each cluster
+for (i in 1:20) {
+  cluster_name <- paste0("cluster", i)
+  assign(cluster_name, get(cluster_name) %>% mutate(activity_instance_id = as.character(activity_instance_id)))
+}
+
+unique_id_cluster2_filtered <- cluster2 %>%
+  filter_infrequent_flows(min_n = 20) %>%
+  distinct(case_id) %>%
+  pull(case_id)
+
+cluster2_filtered <- cluster2 %>%
+  filter(case_id %in% unique_id_cluster2_filtered) %>%
+  select(case_id, activity_id)
+
+fwrite(cluster2_filtered, 'cluster2_filtered_kmeans.csv')
+
+print('Cluster 1, min_n = 20')
+cluster1 %>%
+  filter_infrequent_flows(min_n = 20) %>%
+  process_map(frequency('absolute'))
+
+cluster1_20 <- cluster1 %>%
+  filter_infrequent_flows(min_n = 20) %>%
+  process_map(frequency('absolute'), render=F)
+
+print('Cluster 2, min_n = 15')
+cluster2 %>%
+  filter_infrequent_flows(min_n = 20) %>%
+  process_map(frequency('relative'))
+
+cluster2_15 <- cluster2 %>%
+  filter_infrequent_flows(min_n = 15) %>%
+  process_map(frequency('relative'), render=F)
+
+
+export_map(cluster1_20, file_name = 'cluster1_processmap.png', title = 'K-Means Cluster 1, min_n=20')
+export_map(cluster2_15, file_name = 'cluster2_processmap.png', title = 'K-Means Cluster 2, min_n=15')
+
+```
+## Dynamic Time Warp Clustering
+
+```{r dtw_clustering}
+
+
+dtw_cluster <- seq_dtw_clustering(event_log, k = 20)
+dtw_event_log_2 <- split_event_log(eventlog = event_log, 
+                              cluster_assignment = dtw_cluster$cluster_assignment)
+
+dtw_cluster_hier <- seq_dtw_clustering(event_log, type = 'hierarchical', k = 20)
+dtw_hier_event_log_2 <- split_event_log(eventlog = event_log, 
+                              cluster_assignment = dtw_cluster_hier$cluster_assignment)
+```
+
+## Markov Chain Clustering 
+
+```{r hmm_functions}
+# Determining optimal k
+# Function to calculate BIC and log likelihood for a range of clusters
+calculate_bic_loglik <- function(eventlog, max_clusters) {
+  bic_values <- numeric(max_clusters)
+  loglik_values <- numeric(max_clusters)
+  
+  for (k in 2:max_clusters) {
+    result <- seq_markov_clustering(eventlog, n_clusters = k)
+    
+    fit_model <- result$model
+    bic_values[k] <- fit_model$BIC
+    loglik_values[k] <- fit_model$logLik
+  }
+  
+  return(list(bic = bic_values, loglik = loglik_values))
+}
+
+# Plotting function to visualize BIC and log likelihood
+plot_bic_loglik <- function(bic_values, loglik_values, max_clusters) {
+  par(mfrow = c(1, 2))
+  
+  # Plot BIC
+  plot(1:max_clusters, bic_values, type = "b", pch = 19, frame = FALSE,
+       xlab = "Number of clusters K", ylab = "BIC",
+       main = "BIC for different number of clusters")
+  
+  # Plot log likelihood
+  plot(1:max_clusters, loglik_values, type = "b", pch = 19, frame = FALSE,
+       xlab = "Number of clusters K", ylab = "Log Likelihood",
+       main = "Log Likelihood for different number of clusters")
+}
+
+```
+
+```{r hmm_clustering}
+# results <- calculate_bic_loglik(eventlog = event_log, max_clusters = 30)
+
+# plot_bic_loglik(results$bic, results$loglik, max_clusters)
+
+# taking too long, use sample dataset
+
+set.seed(123)
+unique_ids <- event_log %>% pull(case_id) %>% unique()
+num_samples <- 1000
+
+sampled_num <- sample(unique_ids, num_samples, replace = F)
+sample_event_log <- event_log %>%
+  filter(case_id %in% sampled_num)
+
+markov_clusters  <- seq_markov_clustering(eventlog = sample_event_log, n_clusters = 10)
+```
+
+## Edit Distance Clustering 
+```{r edit_dist}
+set.seed(123)
+edit_dist_cluster <- seq_edit_distance_clustering(event_log)
+
+event_log_edit_dist <- split_event_log(eventlog = event_log,
+                               cluster_assignment = edit_dist_cluster$cluster_assignment)
+
+### View process log
+
+num_clusters = 20
+
+for (i in 1:num_clusters) {
+  # Construct the name of the data frame
+  cluster_name <- paste0("ed_cluster", i)
+
+  # Assign the respective event log to the data frame with the constructed name
+  assign(cluster_name, event_log_edit_dist[[i]])
+
+}
+
+# Convert activity_instance_id to character for each cluster
+for (i in 1:num_clusters) {
+  cluster_name <- paste0("ed_cluster", i)
+  assign(cluster_name, get(cluster_name) %>% mutate(activity_instance_id = as.character(activity_instance_id)))
+}
+
+ed_10_traces <- ed_cluster10 %>%
+  traces()
+  # process_map(frequency('absolute'))
+
+
+filtered_data <- ed_cluster1 %>% filter_infrequent_flows(min_n = 12)
+
+```
